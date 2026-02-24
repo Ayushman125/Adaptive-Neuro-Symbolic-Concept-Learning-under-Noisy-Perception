@@ -7,7 +7,13 @@ A research-oriented interactive system that simulates **dual-process thinking**:
 
 This project is inspired by Josh Tenenbaum’s framing of human-like machine learning: move beyond static pattern matching toward **model building**, **compositional concepts**, and **Bayesian inference over structured hypotheses**.
 
-Latest release: [v0.2-research-harness](https://github.com/Ayushman125/Adaptive-Neuro-Symbolic-Concept-Learning-under-Noisy-Perception/releases/tag/v0.2-research-harness)
+Latest release: [v0.2.2](https://github.com/Ayushman125/Adaptive-Neuro-Symbolic-Concept-Learning-under-Noisy-Perception/releases/tag/v0.2.2)
+
+Formal scientific documentation:
+
+- `docs/THEORY.md` (equations and formal model)
+- `docs/UPDATE_DYNAMICS.md` (state transitions and update order)
+- `docs/ARCHITECTURE.md` (professional Mermaid diagrams)
 
 ---
 
