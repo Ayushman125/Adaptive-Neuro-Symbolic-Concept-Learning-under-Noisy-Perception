@@ -1,0 +1,10 @@
+requests>=2.31
+
+[dev]
+pytest>=7.4
+
+[viz]
+matplotlib>=3.7
+
+[yaml]
+pyyaml>=6.0

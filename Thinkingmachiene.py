@@ -44,6 +44,10 @@ def _norm_token(value):
     return token
 
 
+def main():
+    ThinkingMachine().run_cycle()
+
+
 class ThinkingMachine:
     def __init__(self):
         self.history = []     # List of (item_name, truth_value)
@@ -2604,4 +2608,4 @@ class ThinkingMachine:
                 print("| ALERT: Logical inconsistency detected. Resetting search space.")
 
 if __name__ == "__main__":
-    ThinkingMachine().run_cycle()
+    main()

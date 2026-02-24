@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adaptive-neuro-symbolic-concept-learning"
+version = "0.2.1"
+description = "Adaptive neuro-symbolic concept learning under noisy perception"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [{name = "Ayushman125"}]
+keywords = ["neuro-symbolic", "concept-learning", "bayesian", "active-learning"]
+dependencies = ["requests>=2.31"]
+
+[project.optional-dependencies]
+viz = ["matplotlib>=3.7"]
+yaml = ["pyyaml>=6.0"]
+dev = ["pytest>=7.4"]
+
+[project.scripts]
+thinkingmachine = "Thinkingmachiene:main"
+
+[tool.setuptools]
+py-modules = [
+  "Thinkingmachiene",
+  "adaptive_thresholds",
+  "belief_state",
+  "error_feedback_engine",
+  "feature_feedback_engine",
+]
+
+[tool.setuptools.packages.find]
+include = ["active_learning", "evaluation", "inference", "interaction", "perception"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
