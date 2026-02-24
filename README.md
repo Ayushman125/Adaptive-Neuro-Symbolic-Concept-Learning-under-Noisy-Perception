@@ -339,6 +339,7 @@ Notes:
 
 - Benchmark mode uses deterministic feature fixtures (`features` in JSON), bypassing external LLM variance for reproducibility.
 - This evaluates the System 2 induction/adaptation stack under controlled noise and confounders.
+- `ablation_deltas.csv` is generated only when ablations are enabled (default behavior; not generated with `--no-ablations`).
 
 ### Modular split starter (Upgrade #3)
 

@@ -379,17 +379,22 @@ def run(benchmarks_path, out_dir, seeds, run_ablations=True):
                 "delta_correction_count": float(variant["correction_count_mean"]) - float(full["correction_count_mean"]),
             })
 
-    _write_csv(
-        os.path.join(out_dir, "ablation_deltas.csv"),
-        ablation_delta_rows,
-        [
-            "benchmark", "ablation", "delta_accuracy", "delta_brier", "delta_convergence_step",
-            "delta_entropy_slope", "delta_correction_count"
-        ]
-    )
+    ablation_path = os.path.join(out_dir, "ablation_deltas.csv")
+    if run_ablations:
+        _write_csv(
+            ablation_path,
+            ablation_delta_rows,
+            [
+                "benchmark", "ablation", "delta_accuracy", "delta_brier", "delta_convergence_step",
+                "delta_entropy_slope", "delta_correction_count"
+            ]
+        )
+    elif os.path.exists(ablation_path):
+        os.remove(ablation_path)
 
     _plot_metrics(out_dir, per_run_rows, by_benchmark_entropy)
-    _plot_ablation_deltas(out_dir, ablation_delta_rows)
+    if run_ablations:
+        _plot_ablation_deltas(out_dir, ablation_delta_rows)
 
     print(f"[DONE] Wrote metrics and plots to: {out_dir}")
 
