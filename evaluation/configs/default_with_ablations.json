@@ -1,0 +1,6 @@
+{
+  "benchmarks": "evaluation/benchmarks.json",
+  "out": "evaluation/results",
+  "seeds": 5,
+  "run_ablations": true
+}

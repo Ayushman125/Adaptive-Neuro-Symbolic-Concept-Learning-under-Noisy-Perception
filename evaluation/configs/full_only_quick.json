@@ -1,0 +1,6 @@
+{
+  "benchmarks": "evaluation/benchmarks.json",
+  "out": "evaluation/results_full_only",
+  "seeds": 3,
+  "run_ablations": false
+}

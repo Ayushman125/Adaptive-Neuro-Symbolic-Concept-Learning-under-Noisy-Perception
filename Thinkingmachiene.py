@@ -11,6 +11,9 @@ from feature_feedback_engine import FeatureFeedbackEngine
 from belief_state import BeliefState
 from adaptive_thresholds import AdaptiveThresholds
 from error_feedback_engine import ErrorFeedbackEngine
+from perception.feature_processing import process_features_for_reasoning
+from active_learning.corrections import maybe_apply_correction
+from inference.update_cycle import run_bayesian_update_cycle
 
 # --- ARCHITECTURAL CONSTANTS ---
 PERCEPTION_BACKEND = os.getenv("TM_PERCEPTION_BACKEND", "openrouter").strip().lower()
@@ -2760,10 +2763,7 @@ IMPORTANT: Respond with ONLY a valid JSON object, no other text. [/INST]
         else:
             features = {str(k): bool(v) for k, v in dict(features_override).items()}
 
-        features = self.feature_feedback_engine.inject_learned_features(features, item)
-        features = self._filter_feature_leakage(item, features)
-        features = self._filter_universal_features(features)
-        features = self._apply_feature_importance_filter(features)
+        features = process_features_for_reasoning(self, item, features)
         self.metadata[sample_id] = features
         observed_keys = set(features.keys())
         for key in features:
@@ -2797,48 +2797,18 @@ IMPORTANT: Respond with ONLY a valid JSON object, no other text. [/INST]
 
         self._update_feature_polarity(features, bool(truth), observed_keys)
 
-        correction_asked = False
-        correction_applied = False
-        correction_response = None
-        correction_context = None
+        correction_state = {
+            "correction_asked": False,
+            "correction_applied": False,
+            "correction_response": None,
+            "correction_context": None,
+        }
+        if enable_active_learning:
+            correction_state = maybe_apply_correction(self, auto_feedback=auto_feedback)
 
-        if enable_active_learning and len(self.history) >= 3:
-            correction_context = self._propose_error_correction()
-            if correction_context:
-                correction_asked = True
-                if auto_feedback:
-                    correction_response = self._auto_correction_response(correction_context)
-                    learning = self._apply_correction_feedback(correction_response, correction_context)
-                    correction_applied = bool(learning)
-
-        feature_trust = self._feature_trust()
-        self._rebuild_all_latent_metadata(feature_trust)
-        contrastive_scores = self._contrastive_scores()
-        key_scores = self._feature_scores()
-        anchor_scores = self._concept_anchor_scores()
-        candidate_keys = self._select_candidate_keys(
-            key_scores,
-            contrastive_scores=contrastive_scores,
-            observed_keys=observed_keys
-        )
-        self.last_candidate_keys = set(candidate_keys)
-        self.last_key_scores = dict(key_scores)
-
-        self.beliefs.update(
-            self.history,
-            self.metadata,
-            candidate_keys,
-            feature_trust=feature_trust,
-            key_scores=key_scores,
-            confidence_metadata=self.latent_confidence_metadata,
-            anchor_scores=anchor_scores,
-            contrastive_scores=contrastive_scores
-        )
-
-        self._apply_confirmation_importance_floor()
-        self.adaptive_thresholds.adapt()
-
-        current_entropy = self.beliefs.entropy()
+        inference_state = run_bayesian_update_cycle(self, observed_keys=observed_keys)
+        candidate_keys = inference_state["candidate_keys"]
+        current_entropy = inference_state["entropy"]
         self.feature_feedback_engine.record_entropy(item, current_entropy)
 
         top_theory = self.beliefs.hypotheses[0]['code'] if self.beliefs.hypotheses else None
@@ -2860,11 +2830,11 @@ IMPORTANT: Respond with ONLY a valid JSON object, no other text. [/INST]
             "top_weight": float(top_weight),
             "known_keys": len(self.known_keys),
             "candidate_keys": len(candidate_keys),
-            "correction_asked": correction_asked,
-            "correction_applied": correction_applied,
-            "correction_response": correction_response,
-            "correction_feature": (correction_context or {}).get("feature") if correction_context else None,
-            "correction_action": (correction_context or {}).get("action") if correction_context else None,
+            "correction_asked": correction_state["correction_asked"],
+            "correction_applied": correction_state["correction_applied"],
+            "correction_response": correction_state["correction_response"],
+            "correction_feature": (correction_state.get("correction_context") or {}).get("feature") if correction_state.get("correction_context") else None,
+            "correction_action": (correction_state.get("correction_context") or {}).get("action") if correction_state.get("correction_context") else None,
         }
 
     def run_cycle(self):

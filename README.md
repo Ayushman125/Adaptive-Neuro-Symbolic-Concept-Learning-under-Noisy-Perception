@@ -298,6 +298,24 @@ Run full model only:
 python evaluation\run_benchmarks.py --seeds 5 --no-ablations
 ```
 
+Run from experiment config (JSON):
+
+```powershell
+python evaluation\run_benchmarks.py --config evaluation\configs\default_with_ablations.json
+python evaluation\run_benchmarks.py --config evaluation\configs\full_only_quick.json
+```
+
+Config schema:
+
+```json
+{
+  "benchmarks": "evaluation/benchmarks.json",
+  "out": "evaluation/results",
+  "seeds": 5,
+  "run_ablations": true
+}
+```
+
 Outputs are written to `evaluation/results/`:
 
 - `per_step_metrics.csv`
@@ -321,6 +339,20 @@ Notes:
 
 - Benchmark mode uses deterministic feature fixtures (`features` in JSON), bypassing external LLM variance for reproducibility.
 - This evaluates the System 2 induction/adaptation stack under controlled noise and confounders.
+
+### Modular split starter (Upgrade #3)
+
+Starter modules are now present for architecture migration:
+
+- `perception/feature_processing.py`
+- `active_learning/corrections.py`
+- `inference/update_cycle.py`
+
+Current status:
+
+- Interactive path remains fully functional in `Thinkingmachiene.py`.
+- Benchmark/evaluation path already uses these modular wrappers.
+- This provides a low-risk migration path to complete module-level refactor.
 
 ---
 

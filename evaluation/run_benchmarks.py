@@ -41,6 +41,24 @@ def _linear_slope(values):
     return num / den
 
 
+def _load_config(path):
+    if not path:
+        return {}
+    ext = os.path.splitext(path)[1].lower()
+    if ext in {".yaml", ".yml"}:
+        try:
+            import yaml  # type: ignore
+        except Exception as exc:
+            raise RuntimeError("YAML config requested but PyYAML is not installed. Install with: pip install pyyaml") from exc
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+            return data if isinstance(data, dict) else {}
+
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f) or {}
+        return data if isinstance(data, dict) else {}
+
+
 def _convergence_step(top_theories, window=3):
     if len(top_theories) < window:
         return None
@@ -382,9 +400,18 @@ def main():
     parser.add_argument("--out", default=os.path.join("evaluation", "results"))
     parser.add_argument("--seeds", type=int, default=5)
     parser.add_argument("--no-ablations", action="store_true", help="Run only full model without ablation variants")
+    parser.add_argument("--config", default="", help="Path to JSON/YAML experiment config")
     args = parser.parse_args()
 
-    run(args.benchmarks, args.out, args.seeds, run_ablations=(not args.no_ablations))
+    config = _load_config(args.config)
+    benchmarks = config.get("benchmarks", args.benchmarks)
+    out = config.get("out", args.out)
+    seeds = int(config.get("seeds", args.seeds))
+    run_ablations = bool(config.get("run_ablations", (not args.no_ablations)))
+    if args.no_ablations:
+        run_ablations = False
+
+    run(benchmarks, out, seeds, run_ablations=run_ablations)
 
 
 if __name__ == "__main__":

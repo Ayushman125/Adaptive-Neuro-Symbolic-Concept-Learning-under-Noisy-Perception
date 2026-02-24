@@ -5,3 +5,4 @@ __pycache__/
 *.pyd
 .env
 *.log
+evaluation/results_full_only/
