@@ -5,6 +5,7 @@ import itertools
 import os
 import time
 import sys
+import requests
 from difflib import SequenceMatcher
 from feature_feedback_engine import FeatureFeedbackEngine
 from belief_state import BeliefState
@@ -717,6 +718,7 @@ class ThinkingMachine:
         
         Philosophy: Better to learn from 2 clean signals than 20 garbage signals.
         """
+        quality_score = 1.0
         if not key:
             return 0.0
         
