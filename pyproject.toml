@@ -31,7 +31,7 @@ py-modules = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["active_learning", "evaluation", "inference", "interaction", "perception", "adaptive_neuro_symbolic_concept_learning"]
+include = ["active_learning", "evaluation", "inference", "interaction", "observability", "perception", "adaptive_neuro_symbolic_concept_learning"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

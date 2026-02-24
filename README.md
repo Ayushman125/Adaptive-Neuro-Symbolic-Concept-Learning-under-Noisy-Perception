@@ -138,6 +138,12 @@ pip install -e .[dev]
 - Use a `.env` file locally and keep it out of version control.
 - See `.env.example` for the supported variables.
 
+### Runtime observability
+
+- Structured backend-call logs are enabled with `TM_STRUCTURED_LOGS=1`.
+- Runtime metrics include success rate, p95 latency, and failure ratio.
+- SLO and error-budget targets are defined in `SLO.md`.
+
 ---
 
 ## 6) Run

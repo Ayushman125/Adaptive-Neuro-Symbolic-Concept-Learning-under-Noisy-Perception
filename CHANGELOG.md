@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.3 - Unreleased
+
+- Add local-network backend integration tests for `ollama` and `groq` call paths.
+- Add runtime observability metrics and structured backend-call logs.
+- Add explicit SLO/error-budget targets in `SLO.md`.
+- Add dependency and secret scanning gates in CI.
+
 ## 0.2.2 - 2026-02-24
 
 - Move perception pipeline into dedicated module and unify processing.

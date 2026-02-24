@@ -17,6 +17,7 @@ from perception.pipeline import (
     safe_parse_json,
 )
 from perception.security import redact_sensitive
+from observability.runtime import RuntimeObservability
 from active_learning.corrections import maybe_apply_correction
 from active_learning.corrections import maybe_apply_correction_interactive
 from inference.update_cycle import run_bayesian_update_cycle
@@ -126,6 +127,7 @@ class ThinkingMachine:
         self.beliefs.adaptive_thresholds = self.adaptive_thresholds  # Link adaptive thresholds
         self.beliefs.set_ablation_flags(self.ablation_flags)
         self.item_reperceived_in_cycle = set()  # Per-cycle cooldown for re-perception
+        self.runtime_observability = RuntimeObservability()
 
     def set_ablation_flags(self, flags=None):
         """Update ablation toggles for controlled evaluation studies."""
@@ -178,6 +180,9 @@ class ThinkingMachine:
         if PERCEPTION_DEBUG:
             safe_message = redact_sensitive(message)
             print(f"| SYSTEM 1 (Debug): {safe_message}")
+
+    def runtime_health_summary(self):
+        return self.runtime_observability.summary()
 
     def _normalized_uncertainty(self):
         if not self.beliefs.hypotheses:
@@ -413,8 +418,16 @@ class ThinkingMachine:
         )
 
         for attempt in range(1, PERCEPTION_MAX_RETRIES + 1):
+            call_started = time.perf_counter()
             try:
                 raw, status_code, done_value = self._call_perception_backend(prompt)
+                latency_ms = (time.perf_counter() - call_started) * 1000.0
+                self.runtime_observability.record_backend_call(
+                    backend=PERCEPTION_BACKEND,
+                    success=True,
+                    latency_ms=latency_ms,
+                    status_code=status_code,
+                )
 
                 self._log_perception(
                     f"backend={PERCEPTION_BACKEND} item='{item}' attempt={attempt}/{PERCEPTION_MAX_RETRIES} "
@@ -430,6 +443,7 @@ class ThinkingMachine:
 
                 return clean
             except Exception as ex:
+                status_code = None
                 if isinstance(ex, requests.exceptions.HTTPError) and ex.response is not None:
                     status_code = ex.response.status_code
                     if status_code == 429:
@@ -450,6 +464,15 @@ class ThinkingMachine:
                         self._log_perception(
                             f"gemini model unavailable (404) on attempt={attempt}; switched model and retrying"
                         )
+
+                latency_ms = (time.perf_counter() - call_started) * 1000.0
+                self.runtime_observability.record_backend_call(
+                    backend=PERCEPTION_BACKEND,
+                    success=False,
+                    latency_ms=latency_ms,
+                    status_code=status_code,
+                    error_type=type(ex).__name__,
+                )
 
                 self._log_perception(
                     f"request/parse failure item='{item}' attempt={attempt}/{PERCEPTION_MAX_RETRIES}: "
