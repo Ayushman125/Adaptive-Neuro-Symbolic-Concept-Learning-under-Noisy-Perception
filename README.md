@@ -65,8 +65,8 @@ System 1 may use an LLM backend for feature extraction, but concept induction an
   - Processes prediction/correction errors and categorizes failure modes
 - `feature_feedback_engine.py`
   - Triggers high-entropy feedback prompts and injects learned corrective features
-- `test_prediction.py`
-  - Automated scenario script (sci-fi concept test)
+- `tests/`
+  - Unit tests for CLI helpers, reporting, experiments, and interactive edge cases
 
 ---
 
@@ -104,6 +104,18 @@ System 1 may use an LLM backend for feature extraction, but concept induction an
 - One perception backend key (recommended: Groq)
 - Python packages: `requests`, `matplotlib` (for benchmark plots)
 
+### Package install (pip)
+
+```powershell
+pip install adaptive-neuro-symbolic-concept-learning
+```
+
+Then run:
+
+```powershell
+thinkingmachine
+```
+
 ### Setup (Windows PowerShell)
 
 ```powershell
@@ -119,6 +131,12 @@ Optional (packaged install + test deps):
 ```powershell
 pip install -e .[dev]
 ```
+
+### Security note
+
+- Never paste API keys into logs or console output.
+- Use a `.env` file locally and keep it out of version control.
+- See `.env.example` for the supported variables.
 
 ---
 

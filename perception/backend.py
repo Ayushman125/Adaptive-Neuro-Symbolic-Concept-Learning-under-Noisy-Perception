@@ -35,7 +35,34 @@ from .config import (
 )
 
 
+class FakeBackend:
+    def __init__(self, responses=None):
+        self._responses = list(responses or [])
+        self.calls = []
+
+    def __call__(self, prompt):
+        self.calls.append(prompt)
+        if not self._responses:
+            return "{}", 200, None
+        next_item = self._responses.pop(0)
+        if isinstance(next_item, Exception):
+            raise next_item
+        if isinstance(next_item, dict):
+            raw = next_item.get("raw", "{}")
+            status = next_item.get("status", 200)
+            done = next_item.get("done", None)
+            return raw, status, done
+        if isinstance(next_item, str):
+            return next_item, 200, None
+        return "{}", 200, None
+
+
 def call_perception_backend(machine, prompt):
+    fake_backend = getattr(machine, "fake_backend", None)
+    if fake_backend is not None:
+        return fake_backend(prompt)
+    if PERCEPTION_BACKEND in {"fake", "mock"}:
+        return FakeBackend()(prompt)
     if PERCEPTION_BACKEND == "gemini":
         return call_gemini(machine, prompt)
     if PERCEPTION_BACKEND == "groq":

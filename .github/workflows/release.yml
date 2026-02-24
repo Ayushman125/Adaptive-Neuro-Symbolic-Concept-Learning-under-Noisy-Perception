@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tooling
+        run: python -m pip install --upgrade pip build
+
+      - name: Build artifacts
+        run: python -m build
+
+      - name: Prepare release notes
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          tag = os.environ.get("GITHUB_REF_NAME", "").lstrip("v")
+          changelog = Path("CHANGELOG.md")
+          body = ""
+
+          if changelog.exists():
+              text = changelog.read_text(encoding="utf-8")
+              pattern = re.compile(rf"^##\s+{re.escape(tag)}\s+.*?$([\s\S]*?)(?=^##\s+|\Z)", re.MULTILINE)
+              match = pattern.search(text)
+              if match:
+                  body = match.group(0).strip()
+              else:
+                  body = f"## {tag}\n\n(Changelog section not found.)"
+          else:
+              body = "Release notes not available."
+
+          Path("release_notes.md").write_text(body, encoding="utf-8")
+          PY
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release_notes.md
+          files: dist/*
