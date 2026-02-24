@@ -339,3 +339,11 @@ This repository is an evolving research prototype focused on:
 - and robust behavior under noisy perception.
 
 Contributions and experiment reports are welcome.
+
+---
+
+## 14) License
+
+This project is released under the **MIT License**.
+
+See [LICENSE](LICENSE) for full text.
