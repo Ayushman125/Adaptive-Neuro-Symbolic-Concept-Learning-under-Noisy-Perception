@@ -1,6 +1,5 @@
 import math
 import json
-import requests
 import re
 import itertools
 import os
@@ -15,58 +14,26 @@ from perception.feature_processing import process_features_for_reasoning
 from active_learning.corrections import maybe_apply_correction
 from active_learning.corrections import maybe_apply_correction_interactive
 from inference.update_cycle import run_bayesian_update_cycle
-
-# --- ARCHITECTURAL CONSTANTS ---
-PERCEPTION_BACKEND = os.getenv("TM_PERCEPTION_BACKEND", "openrouter").strip().lower()
-OLLAMA_URL = os.getenv("TM_OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
-OLLAMA_MODEL = os.getenv("TM_OLLAMA_MODEL", "llama3.2:1b")
-GEMINI_MODEL = os.getenv("TM_GEMINI_MODEL", "gemini-2.0-flash")
-GEMINI_MODEL_CANDIDATES = [
-    token.strip() for token in os.getenv(
-        "TM_GEMINI_MODEL_CANDIDATES",
-        "gemini-2.0-flash-lite,gemini-2.0-flash,gemini-flash-lite-latest,gemini-flash-latest"
-    ).split(",") if token.strip()
-]
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_URL_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-
-# Groq (FREE with generous limits - faster than others)
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
-GROQ_MODEL = os.getenv("TM_GROQ_MODEL", "llama-3.1-8b-instant")
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MIN_INTERVAL_SEC = float(os.getenv("TM_GROQ_MIN_INTERVAL", "0.1"))
-
-# OpenRouter (FREE models - no credit card required!)
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
-OPENROUTER_MODEL = os.getenv("TM_OPENROUTER_MODEL", "meta-llama/llama-3.2-3b-instruct:free")
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_MIN_INTERVAL_SEC = float(os.getenv("TM_OPENROUTER_MIN_INTERVAL", "0.2"))
-
-# DeepInfra (FREE - no credit card, truly free tier)
-DEEPINFRA_API_KEY = os.getenv("DEEPINFRA_API_KEY", os.getenv("DEEPINFRA_TOKEN", "")).strip()
-DEEPINFRA_MODEL = os.getenv("TM_DEEPINFRA_MODEL", "meta-llama/Meta-Llama-3-8B-Instruct")
-DEEPINFRA_URL = "https://api.deepinfra.com/v1/openai/chat/completions"
-DEEPINFRA_MIN_INTERVAL_SEC = float(os.getenv("TM_DEEPINFRA_MIN_INTERVAL", "0.2"))
-
-# Together AI (FREE alternative - $25 free credit, no expiry)
-TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY", os.getenv("TOGETHER_AI_KEY", "")).strip()
-TOGETHER_MODEL = os.getenv("TM_TOGETHER_MODEL", "mistralai/Mistral-7B-Instruct-v0.2")
-TOGETHER_URL = "https://api.together.xyz/v1/chat/completions"
-TOGETHER_MIN_INTERVAL_SEC = float(os.getenv("TM_TOGETHER_MIN_INTERVAL", "0.1"))
-
-# HuggingFace Inference API (DEPRECATED - most free models removed)
-HF_API_KEY = os.getenv("HF_API_KEY", os.getenv("HUGGINGFACE_API_KEY", "")).strip()
-HF_MODEL = os.getenv("TM_HF_MODEL", "microsoft/Phi-3-mini-4k-instruct")
-HF_URL_TEMPLATE = "https://api-inference.huggingface.co/models/{model}"
-HF_MIN_INTERVAL_SEC = float(os.getenv("TM_HF_MIN_INTERVAL", "0.5"))
-
-PERCEPTION_DEBUG = os.getenv("TM_PERCEPTION_DEBUG", "1") == "1"
-PERCEPTION_TIMEOUT_SEC = int(os.getenv("TM_PERCEPTION_TIMEOUT", os.getenv("TM_OLLAMA_TIMEOUT", "30")))
-PERCEPTION_MAX_RETRIES = int(os.getenv("TM_PERCEPTION_RETRIES", os.getenv("TM_OLLAMA_RETRIES", "2")))
-GEMINI_MIN_INTERVAL_SEC = float(os.getenv("TM_GEMINI_MIN_INTERVAL", "3"))
-GEMINI_RATE_LIMIT_COOLDOWN_SEC = float(os.getenv("TM_GEMINI_COOLDOWN", "20"))
-MAX_STRING_TOKEN_LEN = int(os.getenv("TM_MAX_STRING_TOKEN_LEN", "28"))
-MAX_STRING_TOKEN_UNDERSCORES = int(os.getenv("TM_MAX_STRING_TOKEN_UNDERSCORES", "3"))
+from interaction.cli_helpers import (
+    is_reset_command,
+    print_banner,
+    print_empty_input_notice,
+    print_reset_notice,
+    prompt_for_item,
+    prompt_for_label,
+)
+from perception import backend as perception_backend
+from perception.config import (
+    GEMINI_MODEL,
+    GEMINI_MODEL_CANDIDATES,
+    GEMINI_RATE_LIMIT_COOLDOWN_SEC,
+    MAX_STRING_TOKEN_LEN,
+    MAX_STRING_TOKEN_UNDERSCORES,
+    PERCEPTION_BACKEND,
+    PERCEPTION_DEBUG,
+    PERCEPTION_MAX_RETRIES,
+    PERCEPTION_TIMEOUT_SEC,
+)
 
 
 def _norm_token(value):
@@ -947,406 +914,37 @@ class ThinkingMachine:
         return selected
 
     def _call_perception_backend(self, prompt):
-        if PERCEPTION_BACKEND == "gemini":
-            return self._call_gemini(prompt)
-        elif PERCEPTION_BACKEND == "groq":
-            return self._call_groq(prompt)
-        elif PERCEPTION_BACKEND == "openrouter" or PERCEPTION_BACKEND == "router":
-            return self._call_openrouter(prompt)
-        elif PERCEPTION_BACKEND == "deepinfra" or PERCEPTION_BACKEND == "deep":
-            return self._call_deepinfra(prompt)
-        elif PERCEPTION_BACKEND == "together" or PERCEPTION_BACKEND == "togetherai":
-            return self._call_together(prompt)
-        elif PERCEPTION_BACKEND == "huggingface" or PERCEPTION_BACKEND == "hf":
-            return self._call_huggingface(prompt)
-        return self._call_ollama(prompt)
+        return perception_backend.call_perception_backend(self, prompt)
 
     def _throttle_perception(self):
-        now = time.time()
-        elapsed = now - self._last_perception_call_ts
-        if elapsed < GEMINI_MIN_INTERVAL_SEC:
-            wait_seconds = GEMINI_MIN_INTERVAL_SEC - elapsed
-            self._log_perception(f"throttling requests, waiting {wait_seconds:.1f}s")
-            time.sleep(wait_seconds)
-        self._last_perception_call_ts = time.time()
+        perception_backend.throttle_perception(self)
 
     def _active_gemini_model(self):
-        if not self.gemini_model_candidates:
-            return GEMINI_MODEL
-        return self.gemini_model_candidates[self._gemini_model_index % len(self.gemini_model_candidates)]
+        return perception_backend.active_gemini_model(self)
 
     def _rotate_gemini_model(self):
-        if not self.gemini_model_candidates:
-            return
-        self._gemini_model_index = (self._gemini_model_index + 1) % len(self.gemini_model_candidates)
+        perception_backend.rotate_gemini_model(self)
 
     def _call_ollama(self, prompt):
-        payload = {"model": OLLAMA_MODEL, "prompt": prompt, "stream": False, "format": "json"}
-        res = requests.post(OLLAMA_URL, json=payload, timeout=PERCEPTION_TIMEOUT_SEC)
-        res.raise_for_status()
-        body = res.json()
-        raw = body.get("response", "{}")
-        if not isinstance(raw, str):
-            raw = json.dumps(raw)
-        return raw, res.status_code, body.get("done", None)
+        return perception_backend.call_ollama(self, prompt)
 
     def _call_gemini(self, prompt):
-        if not GEMINI_API_KEY:
-            raise RuntimeError("Missing GEMINI_API_KEY environment variable")
-
-        self._throttle_perception()
-        model_name = self._active_gemini_model()
-        url = GEMINI_URL_TEMPLATE.format(model=model_name, api_key=GEMINI_API_KEY)
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.2,
-                "responseMimeType": "application/json",
-                "maxOutputTokens": 256
-            }
-        }
-        res = requests.post(url, json=payload, timeout=PERCEPTION_TIMEOUT_SEC)
-        res.raise_for_status()
-        body = res.json()
-
-        candidates = body.get("candidates", [])
-        if not candidates:
-            raise RuntimeError("Gemini returned no candidates")
-
-        content = candidates[0].get("content", {})
-        parts = content.get("parts", [])
-        if not parts:
-            raise RuntimeError("Gemini returned empty content parts")
-
-        raw = parts[0].get("text", "{}")
-        if not isinstance(raw, str):
-            raw = json.dumps(raw)
-
-        finish_reason = candidates[0].get("finishReason", None)
-        self._log_perception(f"gemini_model='{model_name}'")
-        return raw, res.status_code, finish_reason
+        return perception_backend.call_gemini(self, prompt)
 
     def _call_groq(self, prompt):
-        """
-        Call Groq API (FREE tier - very fast inference)
-        
-        Get your free API key from: https://console.groq.com/keys
-        Set it as: export GROQ_API_KEY="your_key_here"
-        
-        Free tier: Generous limits, very fast responses
-        """
-        if not GROQ_API_KEY:
-            raise RuntimeError(
-                "Missing GROQ_API_KEY environment variable.\n"
-                "Get your free API key from: https://console.groq.com/keys\n"
-                "Then set: $env:GROQ_API_KEY='your_key_here'"
-            )
-        
-        # Throttle to be respectful
-        now = time.time()
-        if hasattr(self, '_last_groq_call_ts'):
-            elapsed = now - self._last_groq_call_ts
-            if elapsed < GROQ_MIN_INTERVAL_SEC:
-                wait_seconds = GROQ_MIN_INTERVAL_SEC - elapsed
-                time.sleep(wait_seconds)
-        self._last_groq_call_ts = time.time()
-        
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        
-        # Format for better JSON output
-        json_prompt = prompt + "\n\nIMPORTANT: Respond with ONLY a valid JSON object, no other text."
-        
-        payload = {
-            "model": GROQ_MODEL,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are a feature extraction assistant. Always respond with valid JSON only."
-                },
-                {
-                    "role": "user",
-                    "content": json_prompt
-                }
-            ],
-            "temperature": 0.2,
-            "max_tokens": 256,
-            "response_format": {"type": "json_object"}
-        }
-        
-        res = requests.post(GROQ_URL, json=payload, headers=headers, timeout=PERCEPTION_TIMEOUT_SEC)
-        res.raise_for_status()
-        body = res.json()
-        
-        # Groq uses OpenAI-compatible format
-        choices = body.get("choices", [])
-        if not choices:
-            raise RuntimeError("Groq returned no choices")
-        
-        message = choices[0].get("message", {})
-        raw = message.get("content", "{}")
-        
-        if not isinstance(raw, str):
-            raw = json.dumps(raw)
-        
-        self._log_perception(f"groq_model='{GROQ_MODEL}'")
-        return raw, res.status_code, "completed"
+        return perception_backend.call_groq(self, prompt)
 
     def _call_openrouter(self, prompt):
-        """
-        Call OpenRouter API (FREE models available - no credit card!)
-        
-        Get your free API key from: https://openrouter.ai/keys
-        Set it as: export OPENROUTER_API_KEY="your_key_here"
-        
-        Free models: Llama 3.2, Mistral, and more
-        """
-        if not OPENROUTER_API_KEY:
-            raise RuntimeError(
-                "Missing OPENROUTER_API_KEY environment variable.\n"
-                "Get your free API key from: https://openrouter.ai/keys\n"
-                "No credit card required!\n"
-                "Then set: $env:OPENROUTER_API_KEY='your_key_here'"
-            )
-        
-        # Throttle to be respectful
-        now = time.time()
-        if hasattr(self, '_last_openrouter_call_ts'):
-            elapsed = now - self._last_openrouter_call_ts
-            if elapsed < OPENROUTER_MIN_INTERVAL_SEC:
-                wait_seconds = OPENROUTER_MIN_INTERVAL_SEC - elapsed
-                time.sleep(wait_seconds)
-        self._last_openrouter_call_ts = time.time()
-        
-        headers = {
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/thinking-machine",
-            "X-Title": "Tenenbaum Thinking Machine"
-        }
-        
-        # Format for better JSON output
-        json_prompt = prompt + "\n\nRespond with ONLY a JSON object, no other text."
-        
-        payload = {
-            "model": OPENROUTER_MODEL,
-            "messages": [
-                {"role": "user", "content": json_prompt}
-            ],
-            "temperature": 0.2,
-            "max_tokens": 256
-        }
-        
-        res = requests.post(OPENROUTER_URL, json=payload, headers=headers, timeout=PERCEPTION_TIMEOUT_SEC)
-        res.raise_for_status()
-        body = res.json()
-        
-        # OpenRouter uses OpenAI-compatible format
-        choices = body.get("choices", [])
-        if not choices:
-            raise RuntimeError("OpenRouter returned no choices")
-        
-        message = choices[0].get("message", {})
-        raw = message.get("content", "{}")
-        
-        if not isinstance(raw, str):
-            raw = json.dumps(raw)
-        
-        self._log_perception(f"openrouter_model='{OPENROUTER_MODEL}'")
-        return raw, res.status_code, "completed"
+        return perception_backend.call_openrouter(self, prompt)
 
     def _call_deepinfra(self, prompt):
-        """
-        Call DeepInfra API (TRULY FREE - no credit card required!)
-        
-        Get your free API key from: https://deepinfra.com/dash/api_keys
-        Set it as: export DEEPINFRA_API_KEY="your_key_here"
-        
-        Free tier: Generous limits, no credit card needed
-        """
-        if not DEEPINFRA_API_KEY:
-            raise RuntimeError(
-                "Missing DEEPINFRA_API_KEY environment variable.\n"
-                "Get your free API key from: https://deepinfra.com/dash/api_keys\n"
-                "No credit card required!\n"
-                "Then set: $env:DEEPINFRA_API_KEY='your_key_here'"
-            )
-        
-        # Throttle to be respectful
-        now = time.time()
-        if hasattr(self, '_last_deepinfra_call_ts'):
-            elapsed = now - self._last_deepinfra_call_ts
-            if elapsed < DEEPINFRA_MIN_INTERVAL_SEC:
-                wait_seconds = DEEPINFRA_MIN_INTERVAL_SEC - elapsed
-                time.sleep(wait_seconds)
-        self._last_deepinfra_call_ts = time.time()
-        
-        headers = {
-            "Authorization": f"Bearer {DEEPINFRA_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        
-        # Format for better JSON output
-        json_prompt = prompt + "\n\nRespond with ONLY a JSON object, no other text."
-        
-        payload = {
-            "model": DEEPINFRA_MODEL,
-            "messages": [
-                {"role": "user", "content": json_prompt}
-            ],
-            "temperature": 0.2,
-            "max_tokens": 256
-        }
-        
-        res = requests.post(DEEPINFRA_URL, json=payload, headers=headers, timeout=PERCEPTION_TIMEOUT_SEC)
-        res.raise_for_status()
-        body = res.json()
-        
-        # DeepInfra uses OpenAI-compatible format
-        choices = body.get("choices", [])
-        if not choices:
-            raise RuntimeError("DeepInfra returned no choices")
-        
-        message = choices[0].get("message", {})
-        raw = message.get("content", "{}")
-        
-        if not isinstance(raw, str):
-            raw = json.dumps(raw)
-        
-        self._log_perception(f"deepinfra_model='{DEEPINFRA_MODEL}'")
-        return raw, res.status_code, "completed"
+        return perception_backend.call_deepinfra(self, prompt)
 
     def _call_together(self, prompt):
-        """
-        Call Together AI API (FREE - $25 credit, no expiry, better than HF)
-        
-        Get your free API key from: https://api.together.xyz/settings/api-keys
-        Set it as: export TOGETHER_API_KEY="your_key_here"
-        
-        Free tier: $25 credit that doesn't expire, plenty for this use case
-        """
-        if not TOGETHER_API_KEY:
-            raise RuntimeError(
-                "Missing TOGETHER_API_KEY environment variable.\n"
-                "Get your free API key from: https://api.together.xyz/settings/api-keys\n"
-                "Free tier: $25 credit (no expiry!)\n"
-                "Then set: $env:TOGETHER_API_KEY='your_key_here'"
-            )
-        
-        # Throttle to be respectful
-        now = time.time()
-        if hasattr(self, '_last_together_call_ts'):
-            elapsed = now - self._last_together_call_ts
-            if elapsed < TOGETHER_MIN_INTERVAL_SEC:
-                wait_seconds = TOGETHER_MIN_INTERVAL_SEC - elapsed
-                time.sleep(wait_seconds)
-        self._last_together_call_ts = time.time()
-        
-        headers = {
-            "Authorization": f"Bearer {TOGETHER_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        
-        payload = {
-            "model": TOGETHER_MODEL,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are a feature extraction assistant. Respond ONLY with valid JSON, no other text."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            "temperature": 0.2,
-            "max_tokens": 256,
-            "response_format": {"type": "json_object"}
-        }
-        
-        res = requests.post(TOGETHER_URL, json=payload, headers=headers, timeout=PERCEPTION_TIMEOUT_SEC)
-        res.raise_for_status()
-        body = res.json()
-        
-        # Together AI returns OpenAI-compatible format
-        choices = body.get("choices", [])
-        if not choices:
-            raise RuntimeError("Together AI returned no choices")
-        
-        message = choices[0].get("message", {})
-        raw = message.get("content", "{}")
-        
-        if not isinstance(raw, str):
-            raw = json.dumps(raw)
-        
-        self._log_perception(f"together_model='{TOGETHER_MODEL}'")
-        return raw, res.status_code, "completed"
+        return perception_backend.call_together(self, prompt)
 
     def _call_huggingface(self, prompt):
-        """
-        Call HuggingFace Inference API (FREE - no quota expiry, just rate limits)
-        
-        Get your free API key from: https://huggingface.co/settings/tokens
-        Set it as: export HF_API_KEY="your_key_here"
-        
-        Free tier rate limits: ~1 request/second, which is fine for this use case
-        """
-        if not HF_API_KEY:
-            raise RuntimeError(
-                "Missing HF_API_KEY environment variable.\n"
-                "Get your free API key from: https://huggingface.co/settings/tokens\n"
-                "Then set: export HF_API_KEY='your_key_here'"
-            )
-        
-        # Throttle to respect rate limits
-        now = time.time()
-        if hasattr(self, '_last_hf_call_ts'):
-            elapsed = now - self._last_hf_call_ts
-            if elapsed < HF_MIN_INTERVAL_SEC:
-                wait_seconds = HF_MIN_INTERVAL_SEC - elapsed
-                time.sleep(wait_seconds)
-        self._last_hf_call_ts = time.time()
-        
-        url = HF_URL_TEMPLATE.format(model=HF_MODEL)
-        headers = {"Authorization": f"Bearer {HF_API_KEY}"}
-        
-        # Format prompt for instruction-following models
-        formatted_prompt = f"""[INST] {prompt}
-
-IMPORTANT: Respond with ONLY a valid JSON object, no other text. [/INST]
-"""
-        
-        payload = {
-            "inputs": formatted_prompt,
-            "parameters": {
-                "temperature": 0.2,
-                "max_new_tokens": 256,
-                "return_full_text": False
-            },
-            "options": {
-                "wait_for_model": True  # Wait if model is loading (free tier)
-            }
-        }
-        
-        res = requests.post(url, json=payload, headers=headers, timeout=PERCEPTION_TIMEOUT_SEC)
-        res.raise_for_status()
-        body = res.json()
-        
-        # HuggingFace returns [{'generated_text': '...'}]
-        if isinstance(body, list) and len(body) > 0:
-            raw = body[0].get("generated_text", "{}")
-        elif isinstance(body, dict):
-            raw = body.get("generated_text", body.get("text", "{}"))
-        else:
-            raw = "{}"
-        
-        if not isinstance(raw, str):
-            raw = json.dumps(raw)
-        
-        self._log_perception(f"huggingface_model='{HF_MODEL}'")
-        return raw, res.status_code, "completed"
+        return perception_backend.call_huggingface(self, prompt)
 
     def _filter_feature_leakage(self, item, features):
         if not features:
@@ -2839,20 +2437,18 @@ IMPORTANT: Respond with ONLY a valid JSON object, no other text. [/INST]
         }
 
     def run_cycle(self):
-        print("=== Adaptive Neuro-Symbolic Concept Learning under Noisy Perception ===")
-        print("Role: System 1 (Neural Perception) + System 2 (Bayesian Logic)")
-        print("Commands: type 'exit' to quit, or '/new' (or 'new concept') to hard reset learning.")
+        print_banner()
 
         while True:
-            raw_item = input("\n[Input Item]: ")
+            raw_item = prompt_for_item()
             item = self._sanitize_input_item(raw_item)
             self.item_reperceived_in_cycle = set()  # Reset per-cycle cooldown
             if not item:
-                print("| SYSTEM 1 (Input): Empty or noisy input after sanitization; provide a concrete item.")
+                print_empty_input_notice()
                 continue
-            if item in {'/new', 'new concept', 'reset concept', '/reset'}:
+            if is_reset_command(item):
                 self._reset_for_new_concept()
-                print("| SYSTEM 2 (Reset): Cleared learned state. Ready for a new concept.")
+                print_reset_notice()
                 continue
             if item == 'exit': break
             self.item_tokens_seen.add(_norm_token(item))
@@ -2925,10 +2521,7 @@ IMPORTANT: Respond with ONLY a valid JSON object, no other text. [/INST]
                 print("| SYSTEM 2 (Monologue): 'Observing new data. No active theories yet.'")
 
             # 3. FEEDBACK LOOP
-            feedback = input(f"Is '{item}' a match? (y/n): ").lower().strip()
-            while feedback not in {"y", "n"}:
-                feedback = input("Please type 'y' or 'n': ").lower().strip()
-            truth = (feedback == 'y')
+            truth = prompt_for_label(item)
             self.history.append((sample_id, truth))
             
             # CHECK IF PREDICTION WAS WRONG (trigger error-driven learning)

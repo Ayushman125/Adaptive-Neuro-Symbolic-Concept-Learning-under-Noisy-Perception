@@ -360,14 +360,17 @@ Notes:
 Starter modules are now present for architecture migration:
 
 - `perception/feature_processing.py`
+- `perception/backend.py`
+- `perception/config.py`
 - `active_learning/corrections.py`
 - `inference/update_cycle.py`
+- `interaction/cli_helpers.py`
 
 Current status:
 
 - Interactive path remains fully functional in `Thinkingmachiene.py` and now routes correction + Bayesian update through modular wrappers.
 - Benchmark/evaluation path uses the same modular update/correction modules for consistency.
-- Remaining refactor scope is primarily further decomposition of perception and console I/O helpers.
+- Perception backend routing and CLI helpers are modularized; remaining refactor scope is deeper perception pipeline decomposition.
 
 ---
 
