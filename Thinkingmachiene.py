@@ -13,6 +13,7 @@ from adaptive_thresholds import AdaptiveThresholds
 from error_feedback_engine import ErrorFeedbackEngine
 from perception.feature_processing import process_features_for_reasoning
 from active_learning.corrections import maybe_apply_correction
+from active_learning.corrections import maybe_apply_correction_interactive
 from inference.update_cycle import run_bayesian_update_cycle
 
 # --- ARCHITECTURAL CONSTANTS ---
@@ -2945,59 +2946,22 @@ IMPORTANT: Respond with ONLY a valid JSON object, no other text. [/INST]
 
             self._update_feature_polarity(features, truth, observed_keys)
 
-            # 3.5. ERROR-DRIVEN LEARNING: Ask for feature importance corrections
-            # Implements Tenenbaum's principle of learning from prediction errors
-            if len(self.history) >= 3:  # Only ask after a few examples
-                correction_suggestion = self._propose_error_correction()
-                if correction_suggestion:
-                    print(f"\n| SYSTEM 2 (Active Learning): {correction_suggestion['query']}")
-                    correction_response = input("(y/n): ").lower().strip()
-                    if correction_response in {"y", "n"}:
-                        learning = self._apply_correction_feedback(correction_response, correction_suggestion)
-                        if learning:
-                            print(f"|   ✓ Learned: boosted {list(learning['features_boosted'])}, "
-                                  f"reduced {list(learning['features_reduced'])}")
+            # 3.5. ERROR-DRIVEN LEARNING: Ask for feature-importance corrections
+            maybe_apply_correction_interactive(self)
             
             # 4. BAYESIAN INDUCTION (The 'Thinking' Step)
             print("| SYSTEM 2: Updating theory weights based on evidence...")
-            feature_trust = self._feature_trust()
-            self._rebuild_all_latent_metadata(feature_trust)
-            contrastive_scores = self._contrastive_scores()
-            key_scores = self._feature_scores()
-            anchor_scores = self._concept_anchor_scores()
-            candidate_keys = self._select_candidate_keys(
-                key_scores,
-                contrastive_scores=contrastive_scores,
-                observed_keys=observed_keys
-            )
-            self.last_candidate_keys = set(candidate_keys)
-            self.last_key_scores = dict(key_scores)
+            inference_state = run_bayesian_update_cycle(self, observed_keys=observed_keys)
+            candidate_keys = inference_state["candidate_keys"]
+            key_scores = inference_state["key_scores"]
+            anchor_scores = inference_state["anchor_scores"]
+            current_entropy = inference_state["entropy"]
 
             if PERCEPTION_DEBUG:
                 print(
                     f"| SYSTEM 2 (Debug): using {len(candidate_keys)} candidate keys "
                     f"(known={len(self.known_keys)})"
                 )
-
-            self.beliefs.update(
-                self.history,
-                self.metadata,
-                candidate_keys,
-                feature_trust=feature_trust,
-                key_scores=key_scores,
-                confidence_metadata=self.latent_confidence_metadata,
-                anchor_scores=anchor_scores,
-                contrastive_scores=contrastive_scores
-            )
-
-            # Re-apply confirmation-memory floor after Bayesian importance update
-            self._apply_confirmation_importance_floor()
-            
-            # APPLY LEARNED ADAPTATIONS (critical step - actually update thresholds)
-            self.adaptive_thresholds.adapt()
-            
-            # RECORD ENTROPY FOR FEATURE FEEDBACK ENGINE
-            current_entropy = self.beliefs.entropy()
             self.feature_feedback_engine.record_entropy(item, current_entropy)
 
             # 5. OUTPUT STATE

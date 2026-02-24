@@ -305,6 +305,17 @@ python evaluation\run_benchmarks.py --config evaluation\configs\default_with_abl
 python evaluation\run_benchmarks.py --config evaluation\configs\full_only_quick.json
 ```
 
+Run with managed experiment tracking (timestamped folder + manifest):
+
+```powershell
+python evaluation\run_benchmarks.py --config evaluation\configs\full_only_quick.json --managed-run --run-name smoke_refactor
+```
+
+This creates:
+
+- `evaluation/results*/<timestamp>_<run-name>/run_manifest.json`
+- `evaluation/results*/latest_managed_run.json`
+
 Config schema:
 
 ```json
@@ -320,7 +331,7 @@ Outputs are written to `evaluation/results/`:
 
 - `per_step_metrics.csv`
 - `per_run_metrics.csv`
-- `summary_metrics.csv` (mean ± std across seeds)
+- `summary_metrics.csv` (mean, std, and 95% CI across seeds)
 - `ablation_deltas.csv` (delta vs full model per benchmark)
 - `accuracy_by_benchmark.png`
 - `brier_by_benchmark.png`
@@ -340,6 +351,7 @@ Notes:
 - Benchmark mode uses deterministic feature fixtures (`features` in JSON), bypassing external LLM variance for reproducibility.
 - This evaluates the System 2 induction/adaptation stack under controlled noise and confounders.
 - `ablation_deltas.csv` is generated only when ablations are enabled (default behavior; not generated with `--no-ablations`).
+- Use `--managed-run` for publication/review workflows where run provenance must be preserved.
 
 ### Modular split starter (Upgrade #3)
 
@@ -351,9 +363,9 @@ Starter modules are now present for architecture migration:
 
 Current status:
 
-- Interactive path remains fully functional in `Thinkingmachiene.py`.
-- Benchmark/evaluation path already uses these modular wrappers.
-- This provides a low-risk migration path to complete module-level refactor.
+- Interactive path remains fully functional in `Thinkingmachiene.py` and now routes correction + Bayesian update through modular wrappers.
+- Benchmark/evaluation path uses the same modular update/correction modules for consistency.
+- Remaining refactor scope is primarily further decomposition of perception and console I/O helpers.
 
 ---
 
