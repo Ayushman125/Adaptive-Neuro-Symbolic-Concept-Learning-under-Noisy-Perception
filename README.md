@@ -17,6 +17,69 @@ Formal scientific documentation:
 
 ---
 
+## Quick Interactive Overview
+
+Use this section as a clickable control panel while reading the project docs.
+
+- Jump to: [Motivation](#1-research-motivation) · [Run](#6-run) · [Benchmarks](#9-debugging-and-validation) · [Research Framing](#11-research-framing-tenenbaum-alignment)
+- Open full reports: [RESULTS.md](RESULTS.md) · [RESULTS_SUMMARY.md](RESULTS_SUMMARY.md)
+
+### System Flow Diagram (Interactive)
+
+```mermaid
+flowchart TD
+    A[Input Item] --> B[System 1: Perception]
+    B --> C[Feature Map]
+    C --> D[System 2: Bayesian Prediction]
+    D --> E{User Label y/n}
+    E --> F[Error Analysis]
+    F --> G[Active Correction]
+    G --> H[Bayesian Update Cycle]
+    H --> I[Adaptive Threshold Update]
+    I --> J[Next Step]
+```
+
+### Mini Formulas
+
+- Posterior-style hypothesis weighting: $P(h\mid D) \propto P(D\mid h)\,P(h)$
+- Predictive uncertainty (entropy): $H_t=-\sum_i p_i\log p_i$
+- Dynamic candidate budget: $B_t=\min\left(B_{max},\;12+4\log_2(1+|\mathcal{D}_t|)+|K_{obs,t}|\right)$
+- Correction priority (hidden-important feature):
+  $$
+  \mathrm{priority}=\frac{\mathrm{appearance}}{\mathrm{importance}+0.01}\cdot(1-\mathrm{overlap})\cdot(0.5+\mathrm{recentPosRatio})
+  $$
+
+### Latest Results Snapshot
+
+Current headline metrics (full model, latest published run):
+
+| Benchmark | Accuracy | Brier | Convergence |
+| --- | ---: | ---: | ---: |
+| liquid | 0.90 | 0.4286 | 3.0 |
+| scifi_movies | 0.85 | 0.3209 | 3.0 |
+| devices | 0.90 | 0.4102 | 3.0 |
+| noisy_food_adversarial | 0.75 | 0.2899 | 5.0 |
+| marine_animals_adversarial | 0.90 | 0.3161 | 3.0 |
+
+Primary plots:
+
+- [Accuracy](evaluation/results/accuracy_by_benchmark.png)
+- [Brier](evaluation/results/brier_by_benchmark.png)
+- [Convergence](evaluation/results/convergence_by_benchmark.png)
+- [Entropy Trend](evaluation/results/entropy_trend_by_benchmark.png)
+
+#### How to Read the Plots (First-Time Guide)
+
+- Start with **Accuracy**: higher is better; use it for overall task success.
+- Check **Brier** next: lower is better; this tells you calibration quality (confidence vs correctness).
+- Use **Convergence** to estimate learning speed: lower step count means faster stabilization.
+- Inspect **Entropy Trend** for uncertainty behavior over time:
+  - downward slope = the model is becoming more certain,
+  - flat/positive slope = competing hypotheses remain unresolved.
+- Practical rule of thumb: prefer runs with **high Accuracy + low Brier + low Convergence**; then verify entropy is not drifting upward.
+
+---
+
 ## 1) Research Motivation
 
 Core question:
