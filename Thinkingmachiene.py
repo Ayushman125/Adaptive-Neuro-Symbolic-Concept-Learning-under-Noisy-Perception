@@ -116,6 +116,13 @@ class ThinkingMachine:
         self.confirmation_memory = {}  # Decayed EMA of user-confirmed important features
         self.correction_rejection_counts = {}
         self.correction_ask_cooldown = {}
+        self.ablation_flags = {
+            "recency_blend": True,
+            "stale_feature_demotion": True,
+            "active_learning_cooldown": True,
+            "confirmation_memory_floor": True,
+            "anchor_override": True,
+        }
         self.canonical_key_counts = {}
         self.min_raw_support_for_new_key = 2
         self.min_positive_support_for_curiosity = 2
@@ -145,7 +152,17 @@ class ThinkingMachine:
         self.last_key_scores = {}
         self.beliefs = BeliefState()
         self.beliefs.adaptive_thresholds = self.adaptive_thresholds  # Link adaptive thresholds
+        self.beliefs.set_ablation_flags(self.ablation_flags)
         self.item_reperceived_in_cycle = set()  # Per-cycle cooldown for re-perception
+
+    def set_ablation_flags(self, flags=None):
+        """Update ablation toggles for controlled evaluation studies."""
+        flags = flags or {}
+        for key in list(self.ablation_flags.keys()):
+            if key in flags:
+                self.ablation_flags[key] = bool(flags[key])
+        if hasattr(self, "beliefs") and self.beliefs is not None:
+            self.beliefs.set_ablation_flags(self.ablation_flags)
 
     def _dynamic_anchor_override_threshold(self, anchor_scores, percentile=0.75):
         """
@@ -173,6 +190,8 @@ class ThinkingMachine:
 
     def _apply_confirmation_importance_floor(self):
         """Apply confirmation-based minimum importance floor after any importance recomputation."""
+        if not self.ablation_flags.get("confirmation_memory_floor", True):
+            return
         if not self.confirmation_memory:
             return
         for feature in list(self.confirmation_memory.keys()):
@@ -231,6 +250,7 @@ class ThinkingMachine:
         self.feature_feedback_engine = FeatureFeedbackEngine()
         self.beliefs = BeliefState()
         self.beliefs.adaptive_thresholds = self.adaptive_thresholds
+        self.beliefs.set_ablation_flags(self.ablation_flags)
 
     def _recent_feature_metrics(self, feature, window=None):
         """
@@ -481,10 +501,10 @@ class ThinkingMachine:
                     elif abs(self.beliefs.feature_importance.get(feature, 0.0)) > importance_threshold:
                         filtered_clean[feature] = value
                     # Bayesian override: keep high-anchor features even when statistical importance is low
-                    elif abs(anchor_scores.get(feature, 0.0)) >= anchor_override_threshold:
+                    elif self.ablation_flags.get("anchor_override", True) and abs(anchor_scores.get(feature, 0.0)) >= anchor_override_threshold:
                         filtered_clean[feature] = value
                     # Confirmation-memory floor: keep features repeatedly confirmed by user
-                    elif self.beliefs.feature_importance.get(feature, 0.0) >= self._confirmation_importance_floor(feature):
+                    elif self.ablation_flags.get("confirmation_memory_floor", True) and self.beliefs.feature_importance.get(feature, 0.0) >= self._confirmation_importance_floor(feature):
                         filtered_clean[feature] = value
                     # Data-driven retention for repeatedly observed, low-hallucination features
                     # (avoids hardcoded prefix rules like "always keep has_/is_/can_")
@@ -629,6 +649,73 @@ class ThinkingMachine:
         if text.startswith("traceback"):
             return ""
         return text
+    def _apply_feature_importance_filter(self, clean):
+        if not clean:
+            return {}
+
+        filtered_clean = {}
+        filtered_out = []
+        importance_threshold = self.adaptive_thresholds.get_importance_threshold()
+        anchor_scores = self._concept_anchor_scores()
+        anchor_override_threshold = self._dynamic_anchor_override_threshold(anchor_scores, percentile=0.75)
+        pos_count = sum(1 for _id, truth in self.history if truth)
+        neg_count = sum(1 for _id, truth in self.history if not truth)
+        has_contrast = min(pos_count, neg_count) >= self.min_class_examples_for_filter
+        bootstrap_phase = (len(self.history) < self.bootstrap_min_samples) or (not has_contrast)
+        unseen_reservoir_budget = 2 if self._normalized_uncertainty() >= 0.60 else 1
+        unseen_reservoir_used = 0
+
+        for feature, value in clean.items():
+            self.raw_feature_seen_count[feature] = self.raw_feature_seen_count.get(feature, 0) + 1
+
+            if feature not in self.beliefs.feature_importance:
+                if bootstrap_phase or self._admit_unseen_feature(feature):
+                    filtered_clean[feature] = value
+                elif self._is_structural_key(feature) and unseen_reservoir_used < unseen_reservoir_budget:
+                    filtered_clean[feature] = value
+                    unseen_reservoir_used += 1
+                else:
+                    filtered_out.append({
+                        'feature': feature,
+                        'importance': 0.0,
+                        'reason': 'INSUFFICIENT_SUPPORT'
+                    })
+            elif bootstrap_phase:
+                filtered_clean[feature] = value
+            elif abs(self.beliefs.feature_importance.get(feature, 0.0)) > importance_threshold:
+                filtered_clean[feature] = value
+            elif self.ablation_flags.get("anchor_override", True) and abs(anchor_scores.get(feature, 0.0)) >= anchor_override_threshold:
+                filtered_clean[feature] = value
+            elif self.ablation_flags.get("confirmation_memory_floor", True) and self.beliefs.feature_importance.get(feature, 0.0) >= self._confirmation_importance_floor(feature):
+                filtered_clean[feature] = value
+            else:
+                support = self.feature_support.get(feature, 0)
+                hallucination = self._calculate_hallucination_score(feature)
+                if support >= self.min_key_support_for_reasoning and hallucination < 0.55:
+                    filtered_clean[feature] = value
+                elif self._is_structural_key(feature) and support >= (self.min_key_support_for_reasoning + 1):
+                    filtered_clean[feature] = value
+                else:
+                    filtered_out.append({
+                        'feature': feature,
+                        'importance': self.beliefs.feature_importance.get(feature, 0.0),
+                        'reason': 'LOW_IMPORTANCE'
+                    })
+
+        if PERCEPTION_DEBUG and filtered_out:
+            self._log_perception(
+                f"FILTERED_OUT {len(filtered_out)} features (importance < {importance_threshold:.3f}): "
+                + ", ".join([f"{f['feature']}({f['importance']:.3f})" for f in filtered_out[:5]])
+            )
+
+        if not filtered_clean and clean and PERCEPTION_DEBUG:
+            self._log_perception("ALL_FEATURES_REJECTED: no admissible features under current evidence gate")
+
+        for key in filtered_clean:
+            self.known_keys.add(key)
+            self.canonical_keys.add(key)
+
+        return filtered_clean
 
     def _extract_item_term_tokens(self, item):
         raw = (item or "").lower()
@@ -722,81 +809,11 @@ class ThinkingMachine:
                 
                 # ACCEPT: Semantic 3-token like has_spicy_flavor, has_textured_surface
                 return 1.0
-            
-            # 3-token without connector prefix: reject
-            return 0.0
-        
-        # 4+ tokens: Score adaptively instead of absolute rejection
-        # Allow them but with reduced confidence - let evidence accumulation decide
-        if len(tokens) > 3:
-            # Still reject obvious garbage patterns
-            if len(tokens) > 6:  # Truly excessive complexity
-                return 0.0
-            
-            connector = tokens[0]
-            if connector in ["has", "is", "can", "contains"]:
-                # Check content tokens for semantic validity (no numbers, not too short)
-                content_tokens = tokens[1:]
                 
-                # Reject if ANY content token contains numbers
-                if any(re.search(r'\d', tok) for tok in content_tokens):
-                    return 0.0
-                
-                # Reject if ANY content token is too short
-                if any(len(tok) < 2 for tok in content_tokens):
-                    return 0.0
-                
-                # ACCEPT: Semantic 4-5 token predicates like has_spicy_umami_flavor
-                # Score reduced inversely by token complexity (to penalize verbosity while allowing learning)
-                score = 1.0 - (len(tokens) - 3) * 0.15  # 4-token: 0.85, 5-token: 0.70, etc.
-                return max(0.3, score)  # Never below 0.3, evidence will filter if bad
             
-            # Multi-token without connector prefix: score lower but don't reject
-            return 0.2  # Weak signal, let evidence accumulation decide
-        
-        # Single token: reject (ambiguous, doesn't specify predicate)
-        return 0.0
-        
-        # Penalty 1: Instance contamination (feature embeds item name in non-semantic contexts)
-        if item_tokens:
-            # Pattern 1: Item token as PREFIX (brain_generic_feature_001, apple_has_color)
-            # This indicates per-item vocabulary construction → reject
-            for item_tok in item_tokens:
-                if len(item_tok) > 3 and key.startswith(item_tok + "_"):
-                    quality_score *= 0.1  # Severe penalty for prefix leakage
-            
-            # Pattern 2: Item token in MIDDLE segments (shared_brain_common_feature)
-            # Check if item appears in non-connector positions
-            for item_tok in item_tokens:
-                if len(item_tok) <= 3:
-                    continue
-                # Extract middle segment (exclude first and last token)
-                if len(tokens) >= 3:
-                    middle_tokens = tokens[1:-1]
-                    if item_tok in middle_tokens:
-                        quality_score *= 0.2  # Penalty for mid-key embedding
-            
-            # Pattern 3: Check for valid semantic connectors (has_X, is_X, can_X are OK)
-            # If item appears ONLY after a connector, don't penalize
-            # Examples: has_brain, is_organic, can_fly → these are valid predicates
-            valid_connector_pattern = False
-            for connector in ("has_", "is_", "can_", "contains_"):
-                if connector in key:
-                    parts = key.split(connector)
-                    if len(parts) == 2 and parts[1]:  # Clean connector split
-                        suffix_tokens = parts[1].split("_")
-                        # If suffix is just the item name or very simple, it's a valid predicate
-                        if len(suffix_tokens) <= 2:
-                            valid_connector_pattern = True
-                            break
-            
-            # Only apply token-overlap penalty if NOT a valid connector pattern
-            if not valid_connector_pattern:
                 key_tokens_set = set(tokens)
-                item_tokens_set = set(item_tokens)
                 overlap_count = len(key_tokens_set & item_tokens_set)
-                if overlap_count >= max(1, len(tokens) * 0.5):  # >50% overlap
-                    quality_score *= 0.3
+                clean = self._apply_feature_importance_filter(clean)
         
         # Penalty 2: Numbered templates (LLM hallucination signature)
         if re.search(r'_\d{3,}', key):  # _001, _042, etc.
@@ -2132,7 +2149,7 @@ IMPORTANT: Respond with ONLY a valid JSON object, no other text. [/INST]
 
             # RECENCY-WEIGHTED ANCHOR: blend full-history anchor with recent-window anchor
             recent = self._recent_feature_metrics(key, window=self.recent_feature_window)
-            if recent["window"] >= 4 and (recent["pos_total"] + recent["neg_total"]) > 0:
+            if self.ablation_flags.get("recency_blend", True) and recent["window"] >= 4 and (recent["pos_total"] + recent["neg_total"]) > 0:
                 alpha_recent = 1.0
                 r_p_pos = (recent["pos_support"] + alpha_recent) / (recent["pos_total"] + 2 * alpha_recent)
                 r_p_neg = (recent["neg_support"] + alpha_recent) / (recent["neg_total"] + 2 * alpha_recent)
@@ -2203,6 +2220,8 @@ IMPORTANT: Respond with ONLY a valid JSON object, no other text. [/INST]
                 latent_conf[key] *= self.adaptive_thresholds.get_conflict_downweight()
 
     def _is_feature_in_correction_cooldown(self, feature):
+        if not self.ablation_flags.get("active_learning_cooldown", True):
+            return False
         if not feature:
             return False
         now_idx = len(self.history)
@@ -2210,6 +2229,8 @@ IMPORTANT: Respond with ONLY a valid JSON object, no other text. [/INST]
         return now_idx < until
 
     def _set_correction_cooldown(self, feature, accepted):
+        if not self.ablation_flags.get("active_learning_cooldown", True):
+            return
         if not feature:
             return
         now_idx = len(self.history)
@@ -2665,6 +2686,186 @@ IMPORTANT: Respond with ONLY a valid JSON object, no other text. [/INST]
             # [OK] if high importance (will be kept), [XX] if low (will be filtered)
             marker = "[OK]" if abs(importance) >= 0.10 else "[XX]"
             print(f"|   {marker} {feature:30s} importance={importance:+.3f}")
+
+    def _auto_correction_response(self, correction_context):
+        """
+        Deterministic oracle-lite response policy for benchmark mode.
+        Uses observed class-conditional support in current history.
+        """
+        if not correction_context:
+            return "n"
+
+        feature = correction_context.get("feature")
+        action = correction_context.get("action")
+        if not feature or action is None:
+            return "n"
+
+        pos_total = sum(1 for _, label in self.history if label)
+        neg_total = sum(1 for _, label in self.history if not label)
+        pos_support = sum(
+            1 for sample_id, label in self.history
+            if label and bool(self.metadata.get(sample_id, {}).get(feature, False))
+        )
+        neg_support = sum(
+            1 for sample_id, label in self.history
+            if (not label) and bool(self.metadata.get(sample_id, {}).get(feature, False))
+        )
+
+        pos_ratio = (pos_support / pos_total) if pos_total > 0 else 0.0
+        neg_ratio = (neg_support / neg_total) if neg_total > 0 else 0.0
+
+        if action == "reduce":
+            return "y" if pos_ratio <= (neg_ratio + 0.05) else "n"
+
+        if action in {"verify_extraction", "discover_important", "boost", "moderate_boost"}:
+            return "y" if (pos_support >= 2 and pos_ratio >= (neg_ratio + 0.15)) else "n"
+
+        return "n"
+
+    def process_labeled_example(self, item, truth, features_override=None, enable_active_learning=True, auto_feedback=True):
+        """
+        Non-interactive single-step update for evaluation harnesses.
+
+        Args:
+            item (str): Input item text
+            truth (bool): Ground-truth label
+            features_override (dict|None): Optional deterministic features to bypass perception backend
+            enable_active_learning (bool): Whether to allow correction suggestions
+            auto_feedback (bool): If active learning is enabled, apply deterministic auto-response policy
+
+        Returns:
+            dict: per-step metrics and state snapshot for reproducible evaluation
+        """
+        raw_item = item
+        item = self._sanitize_input_item(raw_item)
+        self.item_reperceived_in_cycle = set()
+        if not item:
+            return {
+                "item": raw_item,
+                "skipped": True,
+                "prediction": None,
+                "probability": 0.5,
+                "confidence": 0.0,
+                "entropy": self.beliefs.entropy() if self.beliefs.hypotheses else 0.0,
+                "top_theory": None,
+                "correction_asked": False,
+                "correction_applied": False,
+            }
+
+        sample_id = f"{item}#{len(self.history) + 1}"
+        self.item_map[sample_id] = item
+
+        if features_override is None:
+            features = self.perceive(item)
+        else:
+            features = {str(k): bool(v) for k, v in dict(features_override).items()}
+
+        features = self.feature_feedback_engine.inject_learned_features(features, item)
+        features = self._filter_feature_leakage(item, features)
+        features = self._filter_universal_features(features)
+        features = self._apply_feature_importance_filter(features)
+        self.metadata[sample_id] = features
+        observed_keys = set(features.keys())
+        for key in features:
+            self.feature_support[key] = self.feature_support.get(key, 0) + 1
+        self._update_observation_statistics(features, observed_keys)
+
+        prior_trust = self._feature_trust()
+        anchor_scores = self._concept_anchor_scores()
+        s1_judgment = self._estimate_s1_judgment(features, prior_trust, anchor_scores)
+        latent_features, latent_conf = self._build_latent_features(features, prior_trust)
+        self.latent_metadata[sample_id] = latent_features
+        forecast = self.beliefs.predict(features, feature_confidences=latent_conf, observed_features=observed_keys)
+
+        if self._is_high_conflict(s1_judgment, forecast):
+            self._downweight_s1_channel(latent_conf, observed_keys)
+
+        self.latent_confidence_metadata[sample_id] = latent_conf
+
+        self.history.append((sample_id, bool(truth)))
+
+        if forecast and forecast['prediction'] != bool(truth):
+            self.feature_feedback_engine.record_prediction_error()
+            self.error_feedback_engine.process_error(
+                predicted_label=forecast['prediction'],
+                ground_truth=bool(truth),
+                best_belief=self.beliefs.hypotheses[0] if self.beliefs.hypotheses else {},
+                features=features,
+                belief_state=self.beliefs,
+                adaptive_thresholds=self.adaptive_thresholds
+            )
+
+        self._update_feature_polarity(features, bool(truth), observed_keys)
+
+        correction_asked = False
+        correction_applied = False
+        correction_response = None
+        correction_context = None
+
+        if enable_active_learning and len(self.history) >= 3:
+            correction_context = self._propose_error_correction()
+            if correction_context:
+                correction_asked = True
+                if auto_feedback:
+                    correction_response = self._auto_correction_response(correction_context)
+                    learning = self._apply_correction_feedback(correction_response, correction_context)
+                    correction_applied = bool(learning)
+
+        feature_trust = self._feature_trust()
+        self._rebuild_all_latent_metadata(feature_trust)
+        contrastive_scores = self._contrastive_scores()
+        key_scores = self._feature_scores()
+        anchor_scores = self._concept_anchor_scores()
+        candidate_keys = self._select_candidate_keys(
+            key_scores,
+            contrastive_scores=contrastive_scores,
+            observed_keys=observed_keys
+        )
+        self.last_candidate_keys = set(candidate_keys)
+        self.last_key_scores = dict(key_scores)
+
+        self.beliefs.update(
+            self.history,
+            self.metadata,
+            candidate_keys,
+            feature_trust=feature_trust,
+            key_scores=key_scores,
+            confidence_metadata=self.latent_confidence_metadata,
+            anchor_scores=anchor_scores,
+            contrastive_scores=contrastive_scores
+        )
+
+        self._apply_confirmation_importance_floor()
+        self.adaptive_thresholds.adapt()
+
+        current_entropy = self.beliefs.entropy()
+        self.feature_feedback_engine.record_entropy(item, current_entropy)
+
+        top_theory = self.beliefs.hypotheses[0]['code'] if self.beliefs.hypotheses else None
+        top_weight = self.beliefs.hypotheses[0]['weight'] if self.beliefs.hypotheses else 0.0
+
+        probability = forecast['probability'] if forecast else 0.5
+        confidence = forecast['confidence'] if forecast else 0.0
+        prediction = forecast['prediction'] if forecast else None
+
+        return {
+            "item": item,
+            "truth": bool(truth),
+            "skipped": False,
+            "prediction": prediction,
+            "probability": float(probability),
+            "confidence": float(confidence),
+            "entropy": float(current_entropy),
+            "top_theory": top_theory,
+            "top_weight": float(top_weight),
+            "known_keys": len(self.known_keys),
+            "candidate_keys": len(candidate_keys),
+            "correction_asked": correction_asked,
+            "correction_applied": correction_applied,
+            "correction_response": correction_response,
+            "correction_feature": (correction_context or {}).get("feature") if correction_context else None,
+            "correction_action": (correction_context or {}).get("action") if correction_context else None,
+        }
 
     def run_cycle(self):
         print("=== Adaptive Neuro-Symbolic Concept Learning under Noisy Perception ===")

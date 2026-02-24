@@ -1,0 +1,84 @@
+{
+  "benchmarks": [
+    {
+      "name": "liquid",
+      "description": "Learn liquid concept under noisy overlapping properties",
+      "examples": [
+        {"item": "water", "label": true, "features": {"is_liquid": true, "can_freeze": true, "can_boil": true, "has_acid": false}},
+        {"item": "mercury", "label": true, "features": {"is_liquid": true, "has_metal": true, "is_toxic": true, "can_boil": true}},
+        {"item": "orange juice", "label": true, "features": {"is_liquid": true, "has_sugar": true, "has_acid": true, "can_freeze": true}},
+        {"item": "vegetable oil", "label": true, "features": {"is_liquid": true, "is_flammable": true, "can_boil": true}},
+        {"item": "iron", "label": false, "features": {"is_metallic": true, "has_metal": true, "can_conduct": true, "is_liquid": false}},
+        {"item": "paper", "label": false, "features": {"has_fibers": true, "can_absorb": true, "is_liquid": false}},
+        {"item": "gun", "label": false, "features": {"has_barrel": true, "is_metallic": true, "can_fire": true, "is_liquid": false}},
+        {"item": "ice", "label": false, "features": {"is_solid": true, "can_melt": true, "can_freeze": true, "is_liquid": false}},
+        {"item": "maple syrup", "label": true, "features": {"is_liquid": true, "has_sugar": true, "has_acid": false}},
+        {"item": "liquid glue", "label": true, "features": {"is_liquid": true, "is_reactive": true, "has_acid": false}}
+      ]
+    },
+    {
+      "name": "scifi_movies",
+      "description": "Learn sci-fi movie concept and reject non-sci-fi/non-movie examples",
+      "examples": [
+        {"item": "dune", "label": true, "features": {"is_movie": true, "has_scifi_theme": true, "has_space_setting": true}},
+        {"item": "blade runner 2049", "label": true, "features": {"is_movie": true, "has_scifi_theme": true, "has_future_setting": true}},
+        {"item": "interstellar", "label": true, "features": {"is_movie": true, "has_space_setting": true, "has_scifi_theme": true}},
+        {"item": "the matrix", "label": true, "features": {"is_movie": true, "has_scifi_theme": true, "has_ai_theme": true}},
+        {"item": "the godfather", "label": false, "features": {"is_movie": true, "has_crime_theme": true, "has_scifi_theme": false}},
+        {"item": "forrest gump", "label": false, "features": {"is_movie": true, "has_historical_setting": true, "has_scifi_theme": false}},
+        {"item": "titanic", "label": false, "features": {"is_movie": true, "has_romance_theme": true, "has_scifi_theme": false}},
+        {"item": "paper", "label": false, "features": {"is_movie": false, "has_fibers": true}},
+        {"item": "camera", "label": false, "features": {"is_movie": false, "is_electronic": true}},
+        {"item": "arrival", "label": true, "features": {"is_movie": true, "has_scifi_theme": true, "has_alien_theme": true}}
+      ]
+    },
+    {
+      "name": "devices",
+      "description": "Learn electronic devices vs non-device everyday objects",
+      "examples": [
+        {"item": "laptop", "label": true, "features": {"is_electronic": true, "requires_power": true, "has_processor": true}},
+        {"item": "smartphone", "label": true, "features": {"is_electronic": true, "requires_power": true, "has_processor": true}},
+        {"item": "router", "label": true, "features": {"is_electronic": true, "requires_power": true, "has_network_function": true}},
+        {"item": "camera", "label": true, "features": {"is_electronic": true, "requires_power": true, "captures_image": true}},
+        {"item": "book", "label": false, "features": {"is_electronic": false, "has_pages": true}},
+        {"item": "pen", "label": false, "features": {"is_electronic": false, "can_write": true}},
+        {"item": "wooden chair", "label": false, "features": {"is_electronic": false, "is_furniture": true}},
+        {"item": "ceramic cup", "label": false, "features": {"is_electronic": false, "holds_liquid": true}},
+        {"item": "game console", "label": true, "features": {"is_electronic": true, "requires_power": true, "has_processor": true}},
+        {"item": "projector", "label": true, "features": {"is_electronic": true, "requires_power": true, "displays_image": true}}
+      ]
+    },
+    {
+      "name": "noisy_food_adversarial",
+      "description": "Noisy concept: edible fruits with confounding shared features",
+      "examples": [
+        {"item": "apple", "label": true, "features": {"is_edible": true, "is_fruit": true, "has_sugar": true, "has_seed": true}},
+        {"item": "banana", "label": true, "features": {"is_edible": true, "is_fruit": true, "has_sugar": true}},
+        {"item": "orange", "label": true, "features": {"is_edible": true, "is_fruit": true, "has_acid": true, "has_sugar": true}},
+        {"item": "grape", "label": true, "features": {"is_edible": true, "is_fruit": true, "has_sugar": true}},
+        {"item": "tomato", "label": true, "features": {"is_edible": true, "is_fruit": true, "has_acid": true}},
+        {"item": "candy", "label": false, "features": {"is_edible": true, "is_fruit": false, "has_sugar": true}},
+        {"item": "plastic ball", "label": false, "features": {"is_edible": false, "is_fruit": false, "is_round": true}},
+        {"item": "soap", "label": false, "features": {"is_edible": false, "has_acid": false, "has_sugar": false}},
+        {"item": "potato", "label": false, "features": {"is_edible": true, "is_fruit": false, "has_starch": true}},
+        {"item": "marble", "label": false, "features": {"is_edible": false, "is_round": true, "is_fruit": false}}
+      ]
+    },
+    {
+      "name": "marine_animals_adversarial",
+      "description": "Adversarial overlap: marine animals vs machines that also move in water",
+      "examples": [
+        {"item": "dolphin", "label": true, "features": {"is_animal": true, "lives_in_ocean": true, "can_swim": true, "is_machine": false}},
+        {"item": "shark", "label": true, "features": {"is_animal": true, "lives_in_ocean": true, "can_swim": true, "has_fins": true}},
+        {"item": "whale", "label": true, "features": {"is_animal": true, "lives_in_ocean": true, "can_swim": true}},
+        {"item": "octopus", "label": true, "features": {"is_animal": true, "lives_in_ocean": true, "can_swim": true}},
+        {"item": "submarine", "label": false, "features": {"is_animal": false, "lives_in_ocean": true, "can_swim": true, "is_machine": true}},
+        {"item": "boat", "label": false, "features": {"is_animal": false, "can_swim": true, "is_machine": true}},
+        {"item": "jet ski", "label": false, "features": {"is_animal": false, "can_swim": true, "is_machine": true}},
+        {"item": "seal", "label": true, "features": {"is_animal": true, "lives_in_ocean": true, "can_swim": true}},
+        {"item": "penguin", "label": true, "features": {"is_animal": true, "can_swim": true, "lives_in_ocean": false}},
+        {"item": "drone", "label": false, "features": {"is_animal": false, "is_machine": true, "can_swim": false}}
+      ]
+    }
+  ]
+}

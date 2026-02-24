@@ -100,7 +100,7 @@ System 1 may use an LLM backend for feature extraction, but concept induction an
 
 - Python 3.10+
 - One perception backend key (recommended: Groq)
-- Python package: `requests`
+- Python packages: `requests`, `matplotlib` (for benchmark plots)
 
 ### Setup (Windows PowerShell)
 
@@ -109,6 +109,7 @@ cd C:\Users\HP\views
 python -m venv venv
 .\venv\Scripts\activate
 pip install requests
+pip install matplotlib
 ```
 
 ---
@@ -274,6 +275,52 @@ python test_prediction.py
 ```
 
 This script runs a sci-fi scenario and checks whether non-movie items are rejected.
+
+### Reproducible benchmark harness (research mode)
+
+Run fixed benchmarks (liquid, sci-fi, devices, noisy/adversarial) with multiple seeds:
+
+```powershell
+python evaluation\run_benchmarks.py --seeds 5
+```
+
+By default, this runs the **full model + ablation variants**:
+
+- `ablate_recency_blend`
+- `ablate_stale_feature_demotion`
+- `ablate_active_learning_cooldown`
+- `ablate_confirmation_memory_floor`
+- `ablate_anchor_override`
+
+Run full model only:
+
+```powershell
+python evaluation\run_benchmarks.py --seeds 5 --no-ablations
+```
+
+Outputs are written to `evaluation/results/`:
+
+- `per_step_metrics.csv`
+- `per_run_metrics.csv`
+- `summary_metrics.csv` (mean ± std across seeds)
+- `ablation_deltas.csv` (delta vs full model per benchmark)
+- `accuracy_by_benchmark.png`
+- `brier_by_benchmark.png`
+- `convergence_by_benchmark.png`
+- `corrections_by_benchmark.png`
+- `entropy_slope_by_benchmark.png`
+- `entropy_trend_by_benchmark.png`
+
+Custom benchmark file:
+
+```powershell
+python evaluation\run_benchmarks.py --benchmarks evaluation\benchmarks.json --out evaluation\results --seeds 3
+```
+
+Notes:
+
+- Benchmark mode uses deterministic feature fixtures (`features` in JSON), bypassing external LLM variance for reproducibility.
+- This evaluates the System 2 induction/adaptation stack under controlled noise and confounders.
 
 ---
 

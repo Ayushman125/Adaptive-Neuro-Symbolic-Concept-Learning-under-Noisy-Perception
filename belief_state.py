@@ -21,12 +21,25 @@ class BeliefState:
         self.adaptive_thresholds = None
         self.recency_window = 8
         self.stale_positive_window = 5
+        self.ablation_flags = {
+            "recency_blend": True,
+            "stale_feature_demotion": True,
+            "active_learning_cooldown": True,
+            "confirmation_memory_floor": True,
+            "anchor_override": True,
+        }
         
         # FEATURE PERSISTENCE TRACKING: Detect extraction failures
         # Maps feature -> list of item_ids where it was extracted
         self.feature_extraction_history = {}
         # Maps feature -> persistence_score (fraction of positive examples where extracted)
         self.feature_persistence = {}
+
+    def set_ablation_flags(self, flags=None):
+        flags = flags or {}
+        for key in list(self.ablation_flags.keys()):
+            if key in flags:
+                self.ablation_flags[key] = bool(flags[key])
 
     def _as_binary_feature(self, value):
         if isinstance(value, bool):
@@ -289,8 +302,9 @@ class BeliefState:
             recent_corr = recent_pos_ratio - recent_neg_ratio
             recent_score = min(1.0, max(0.0, (recent_disc + max(0.0, recent_corr)) / 2.0))
 
-            recency_weight = 0.15 if num_total < 6 else (0.25 if num_total < 12 else 0.35)
-            normalized = (1.0 - recency_weight) * normalized + recency_weight * recent_score
+            if self.ablation_flags.get("recency_blend", True):
+                recency_weight = 0.15 if num_total < 6 else (0.25 if num_total < 12 else 0.35)
+                normalized = (1.0 - recency_weight) * normalized + recency_weight * recent_score
             
             # ADAPTIVE BAYESIAN FEEDBACK LOOP: Boost based on posterior-prior gap AND appearance ratio
             # Larger gap indicates System 1 extraction inconsistency - needs more aggressive boost
@@ -372,11 +386,12 @@ class BeliefState:
                 if (not label) and metadata.get(item_id, {}).get(feature, False)
             )
 
-            if stale_pos_total >= 3 and overall_pos_support >= 2 and stale_pos_support == 0:
-                stale_cap = 0.50
-                if stale_recent_neg_support > 0:
-                    stale_cap = 0.38
-                final_score = min(final_score, stale_cap)
+            if self.ablation_flags.get("stale_feature_demotion", True):
+                if stale_pos_total >= 3 and overall_pos_support >= 2 and stale_pos_support == 0:
+                    stale_cap = 0.50
+                    if stale_recent_neg_support > 0:
+                        stale_cap = 0.38
+                    final_score = min(final_score, stale_cap)
 
             # COMPETITION PENALTY: prevent saturation for anti-anchored cross-class features
             # If a feature has strong negative anchor evidence (anti concept) and appears
